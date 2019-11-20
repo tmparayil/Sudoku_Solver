@@ -114,7 +114,41 @@ public class BTSolver
 	 */
 	public Map.Entry<HashMap<Variable,Domain>, Boolean> forwardChecking ( )
 	{
-		return Pair.of(null, false);
+		HashMap<Variable,Domain> map = new HashMap<>();
+		List<Constraint> RMC = network.getModifiedConstraints();
+		for(int i=0;i<RMC.size();i++)
+		{
+			List<Variable> LV = RMC.get(i).vars;
+			for(int j=0;j< LV.size();j++)
+			{
+				if(LV.get(j).isAssigned())
+				{
+					List<Variable> neighbors = network.getNeighborsOfVariable(LV.get(j));
+					int assignedValue = LV.get(j).getAssignment();
+					for(int k=0;k<neighbors.size();k++)
+					{
+						if(neighbors.get(k).isAssigned() && neighbors.get(k).getAssignment() == assignedValue)
+						{
+							return Pair.of(null,false);
+						}
+						Domain d = neighbors.get(k).getDomain();
+						if(d.contains(assignedValue))
+						{
+							trail.push(neighbors.get(k));
+							neighbors.get(k).removeValueFromDomain(assignedValue);
+							map.put(neighbors.get(k),neighbors.get(k).getDomain());
+
+							if(neighbors.get(k).getDomain().size() == 1)
+							{
+								neighbors.get(k).assignValue(neighbors.get(k).getValues().get(0));
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		return Pair.of(map,true);	
 	}
 
 	/**
@@ -136,7 +170,42 @@ public class BTSolver
 	 */
 	public Map.Entry<HashMap<Variable,Integer>,Boolean> norvigCheck ( )
 	{
-        return Pair.of(null,false);
+		
+       		HashMap<Variable,Integer> map = new HashMap<Variable,Integer>();
+                List<Constraint> RMC = network.getModifiedConstraints();
+                for(int i=0;i<RMC.size();i++)
+                {
+                        List<Variable> LV = RMC.get(i).vars;
+                        for(int j=0;j< LV.size();j++)
+                        {
+                                if(LV.get(j).isAssigned())
+                                {
+                                        List<Variable> neighbors = network.getNeighborsOfVariable(LV.get(j));
+                                        int assignedValue = LV.get(j).getAssignment();
+                                        for(int k=0;k<neighbors.size();k++)
+                                        {
+                                                if(neighbors.get(k).isAssigned() && neighbors.get(k).getAssignment() == assignedValue)
+                                                {
+                                                        return Pair.of(null,false);
+                                                }
+                                                Domain d = neighbors.get(k).getDomain();
+                                                if(d.contains(assignedValue))
+                                                {
+                                                        trail.push(neighbors.get(k));
+                                                        neighbors.get(k).removeValueFromDomain(assignedValue);
+
+                                                        if(neighbors.get(k).getDomain().size() == 1)
+                                                        {
+                                                                neighbors.get(k).assignValue(neighbors.get(k).getValues().get(0));
+																map.put(neighbors.get(k) , neighbors.get(k).getAssignment());
+                                                        }
+                                                }
+                                        }
+                                }
+                        }
+                }
+
+                return Pair.of(map,true);
 	}
 
 	/**
@@ -172,7 +241,14 @@ public class BTSolver
 	 */
 	public Variable getMRV ( )
 	{
-        return null;
+		Variable min_domain = null;
+		for(Variable v : network.getVariables())
+			if( !(v.isAssigned())) {
+				if(min_domain == null) min_domain = v;
+				else if(v.getDomain().size() < min_domain.getDomain().size())
+					min_domain = v;
+			}
+        	return min_domain;
 	}
 
 	/**
@@ -185,9 +261,50 @@ public class BTSolver
 	 *         If there is only one variable, return the list of size 1 containing that variable.
 	 */
 	public List<Variable> MRVwithTieBreaker ( )
-	{
-        return null;
-    }
+	{	
+		Variable min = getMRV();
+		Variable nullVar = null;
+		List<Variable> ans = new ArrayList<>();
+		if( min == null)
+			{
+				ans.add(nullVar);
+				return ans;
+			}
+		
+		for(Variable v : network.getVariables())
+			if(!(v.isAssigned())){
+				if(v.getDomain().size() == min.getDomain().size())
+					ans.add(v);
+			}
+
+		HashMap<Variable, Integer> countMap = new HashMap<Variable,Integer>();
+		int count = 0; int max = 0;
+		for(int i=0;i<ans.size();i++)
+		{
+			count = 0;
+			Variable v = ans.get(i);
+			for(Variable neighbor : network.getNeighborsOfVariable(v))
+			{
+				if(!neighbor.isAssigned())
+					count++;
+			}
+			max = Math.max(max,count);
+			countMap.put(v,count);
+		}
+		
+		// We avoid the sort, since we select the first variable in the list -> just add the highest value to index 0.
+		// Save time here..
+		for(Variable key: countMap.keySet())
+		{
+			if(countMap.get(key) == max)
+			{
+				ans.remove(key);
+				ans.add(0,key);
+			}
+		}
+			
+        	return ans;
+   	}
 
 	/**
 	 * Optional TODO: Implement your own advanced Variable Heuristic
@@ -231,7 +348,68 @@ public class BTSolver
 	 */
 	public List<Integer> getValuesLCVOrder ( Variable v )
 	{
-        return null;
+        	List<Integer> ans = new ArrayList<>();
+		HashMap<Integer,Integer> map = new HashMap<>();
+		
+		// Get the list of neighbors for the current variable
+		List<Variable> neighbors = network.getNeighborsOfVariable(v);
+		
+		/*
+ 		 * Iterate through the list of values for the current variable.
+		 * We need to check if this value is present in the neighboring domains.
+		 * If present, then update the map with increased frequency.
+ 		 */ 		
+		for(int i=0;i < v.getValues().size();i++)
+		{
+			int value = v.getValues().get(i);
+			map.put(value,0);
+			for(int j =0;j<neighbors.size();j++)
+			{
+				if(neighbors.get(j).getValues().contains(value))
+				{
+					if(map.containsKey(value))
+					{
+						map.put(value , map.get(value) + 1);
+					}
+					else
+					{
+						map.put(value,1);
+					}
+				}
+			}
+		}
+		
+		/*
+ 		 * Here we transfer the map values to a 2-D array for sorting.
+ 		 * We sort the array based on frequency in ascending order.
+ 		 */ 		
+		int[][] temp = new int[map.size()][2];
+		int count = 0;
+		for(int key: map.keySet())
+		{
+			temp[count][0] = key;
+			temp[count][1] = map.get(key);
+			count++;
+		}
+		
+		java.util.Arrays.sort(temp, new Comparator<int[]>(){
+		public int compare(int[] a,int[] b)
+		{
+			if(a[1] > b[1])
+				return 1;
+			else if(a[1] == b[1])
+				return a[0] > b[0] ? 1 : -1;
+			return -1;
+		}
+		});
+		
+		// Returning the sorted array as list with least LCV at the start and max at the end.
+		for(int i=0;i < temp.length;i++)
+		{
+			ans.add(temp[i][0]);
+		}
+
+		return ans;
 	}
 
 	/**
